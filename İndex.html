@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Particle Playground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #050508;
+    --panel: rgba(18,18,26,0.72);
+    --line: rgba(255,255,255,0.10);
+    --text: #eceaf5;
+    --dim: #8b88a3;
+    --accent: #b98cff;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:var(--bg); }
+  body{ font-family:'Sora', sans-serif; color:var(--text); }
+
+  canvas{ position:fixed; inset:0; display:block; touch-action:none; }
+
+  .ui{
+    position:fixed; z-index:2;
+    font-family:'Sora', sans-serif;
+  }
+
+  header.ui{
+    top:22px; left:24px; right:24px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none;
+  }
+  header h1{ font-size:20px; font-weight:700; margin:0; letter-spacing:0.2px; }
+  header p{ margin:4px 0 0; font-size:12.5px; color:var(--dim); max-width:340px; line-height:1.5; }
+
+  .fps{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px; color: var(--dim);
+    pointer-events:none;
+  }
+
+  .dock{
+    bottom:20px; left:50%; transform:translateX(-50%);
+    background: var(--panel);
+    border:1px solid var(--line);
+    border-radius:16px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    padding:14px 18px;
+    display:flex; flex-direction:column; gap:12px;
+    width: min(560px, calc(100vw - 32px));
+  }
+
+  .modes{ display:flex; gap:6px; }
+  .mode-btn{
+    flex:1;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    padding:8px 6px;
+    border-radius:9px;
+    border:1px solid var(--line);
+    background:rgba(255,255,255,0.03);
+    color:var(--dim);
+    cursor:pointer;
+    text-align:center;
+    transition: all .15s ease;
+  }
+  .mode-btn:hover{ color:var(--text); border-color:rgba(255,255,255,0.25); }
+  .mode-btn.on{ background:var(--accent); color:#150a26; border-color:var(--accent); font-weight:700; }
+
+  .sliders{ display:flex; gap:16px; flex-wrap:wrap; }
+  .slide-field{ flex:1; min-width:130px; }
+  .slide-field label{
+    display:flex; justify-content:space-between;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; color:var(--dim); margin-bottom:5px;
+  }
+  .slide-field label b{ color:var(--accent); font-weight:500; }
+  input[type=range]{ width:100%; accent-color:var(--accent); }
+
+  .row-btns{ display:flex; gap:8px; }
+  .row-btns button{
+    flex:1;
+    font-family:'Sora', sans-serif;
+    font-weight:600;
+    font-size:12.5px;
+    padding:9px 10px;
+    border-radius:9px;
+    border:1px solid var(--line);
+    background:rgba(255,255,255,0.03);
+    color:var(--text);
+    cursor:pointer;
+    transition: all .15s ease;
+  }
+  .row-btns button:hover{ border-color:var(--accent); color:var(--accent); }
+
+  .hint{
+    position:fixed; z-index:2;
+    bottom:20px; right:24px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; color: var(--dim);
+    opacity:0.7;
+  }
+
+  @media (max-width:560px){
+    header.ui p{ display:none; }
+    .hint{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="cv"></canvas>
+
+<header class="ui">
+  <div>
+    <h1>Particle Playground</h1>
+    <p>Three little particle systems, one canvas. Move your cursor (or finger) through them — they all react differently.</p>
+  </div>
+  <div class="fps" id="fps">-- fps</div>
+</header>
+
+<div class="ui dock">
+  <div class="modes" id="modes">
+    <div class="mode-btn on" data-mode="flow">Flow field</div>
+    <div class="mode-btn" data-mode="galaxy">Galaxy</div>
+    <div class="mode-btn" data-mode="fireworks">Fireworks</div>
+  </div>
+
+  <div class="sliders">
+    <div class="slide-field">
+      <label>Particles <b id="countVal">1400</b></label>
+      <input type="range" id="countSlider" min="200" max="4000" step="100" value="1400">
+    </div>
+    <div class="slide-field">
+      <label>Speed <b id="speedVal">1.0x</b></label>
+      <input type="range" id="speedSlider" min="20" max="300" value="100">
+    </div>
+  </div>
+
+  <div class="row-btns">
+    <button id="themeBtn">Cycle color theme</button>
+    <button id="saveBtn">Save frame as PNG</button>
+    <button id="clearBtn">Clear trails</button>
+  </div>
+</div>
+
+<div class="hint" id="hint">click canvas for a burst &middot; drag to steer</div>
+
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H;
+
+function resize(){
+  W = cv.width = window.innerWidth;
+  H = cv.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// --- pointer tracking ---
+const pointer = { x: W/2, y: H/2, active: false, px: W/2, py: H/2 };
+
+function setPointer(x, y){
+  pointer.px = pointer.x; pointer.py = pointer.y;
+  pointer.x = x; pointer.y = y;
+}
+
+cv.addEventListener('mousemove', e => { pointer.active = true; setPointer(e.clientX, e.clientY); });
+cv.addEventListener('mouseleave', () => pointer.active = false);
+cv.addEventListener('touchmove', e => {
+  pointer.active = true;
+  const t = e.touches[0];
+  setPointer(t.clientX, t.clientY);
+  e.preventDefault();
+}, { passive: false });
+cv.addEventListener('touchend', () => pointer.active = false);
+
+cv.addEventListener('click', e => spawnBurst(e.clientX, e.clientY));
+
+// --- color themes ---
+const themes = [
+  { name: 'violet', a: [185,140,255], b: [90,220,255] },
+  { name: 'ember',  a: [255,140,90],  b: [255,220,90] },
+  { name: 'mint',   a: [90,255,190],  b: [90,180,255] },
+  { name: 'rose',   a: [255,110,170], b: [255,220,140] },
+];
+let themeIdx = 0;
+function lerpColor(a, b, t){
+  return `rgb(${a[0]+(b[0]-a[0])*t|0}, ${a[1]+(b[1]-a[1])*t|0}, ${a[2]+(b[2]-a[2])*t|0})`;
+}
+
+let mode = 'flow';
+let speedMul = 1;
+let particleCount = 1400;
+
+// simple value-noise-ish field, cheap sin/cos combo instead of real perlin -
+// good enough visually and way less code
+function fieldAngle(x, y, t){
+  return Math.sin(x*0.0025 + t*0.4) + Math.cos(y*0.0025 - t*0.3) + Math.sin((x+y)*0.0015 + t*0.2);
+}
+
+class Particle{
+  constructor(){ this.reset(true); }
+
+  reset(randomPos){
+    if (mode === 'galaxy'){
+      const r = Math.random() * Math.min(W,H) * 0.42 + 6;
+      const a = Math.random() * Math.PI * 2;
+      this.x = W/2 + Math.cos(a) * r;
+      this.y = H/2 + Math.sin(a) * r;
+      this.orbitR = r;
+      this.orbitA = a;
+    } else {
+      this.x = randomPos ? Math.random()*W : this.x;
+      this.y = randomPos ? Math.random()*H : this.y;
+    }
+    this.vx = 0; this.vy = 0;
+    this.life = 1;
+    this.hueT = Math.random();
+    this.size = 0.8 + Math.random()*1.6;
+  }
+
+  step(t, dt){
+    if (mode === 'flow'){
+      const ang = fieldAngle(this.x, this.y, t);
+      this.vx += Math.cos(ang) * 0.5 * dt;
+      this.vy += Math.sin(ang) * 0.5 * dt;
+
+      if (pointer.active){
+        const dx = this.x - pointer.x, dy = this.y - pointer.y;
+        const d2 = dx*dx + dy*dy;
+        if (d2 < 130*130){
+          const f = (1 - d2/(130*130)) * 3.2;
+          this.vx += (dx/(Math.sqrt(d2)+0.01)) * f * dt;
+          this.vy += (dy/(Math.sqrt(d2)+0.01)) * f * dt;
+        }
+      }
+
+      this.vx *= 0.96; this.vy *= 0.96;
+      this.x += this.vx * speedMul; this.y += this.vy * speedMul;
+
+      if (this.x < 0) this.x = W; if (this.x > W) this.x = 0;
+      if (this.y < 0) this.y = H; if (this.y > H) this.y = 0;
+    }
+    else if (mode === 'galaxy'){
+      const cx = W/2, cy = H/2;
+      const speed = (0.4 + 60/(this.orbitR+40)) * 0.02 * speedMul;
+      this.orbitA += speed * dt * 60;
+      let tx = cx + Math.cos(this.orbitA) * this.orbitR;
+      let ty = cy + Math.sin(this.orbitA) * this.orbitR * 0.55; // squash into an ellipse
+
+      if (pointer.active){
+        const dx = tx - pointer.x, dy = ty - pointer.y;
+        const d2 = dx*dx + dy*dy;
+        if (d2 < 160*160){
+          const f = (1 - d2/(160*160)) * 40;
+          tx += (dx/(Math.sqrt(d2)+0.01)) * f;
+          ty += (dy/(Math.sqrt(d2)+0.01)) * f;
+        }
+      }
+      this.x = tx; this.y = ty;
+    }
+    else if (mode === 'fireworks'){
+      this.vy += 0.045 * dt * 60; // gravity
+      this.vx *= 0.995; this.vy *= 0.995;
+      this.x += this.vx * speedMul; this.y += this.vy * speedMul;
+      this.life -= 0.0032 * dt * 60;
+      if (this.life <= 0 || this.y > H + 40) this.dead = true;
+    }
+  }
+}
+
+let particles = [];
+function buildParticles(){
+  if (mode === 'fireworks'){ particles = []; return; } // starts empty, spawnBurst fills it in over time
+  particles = [];
+  for (let i = 0; i < particleCount; i++) particles.push(new Particle());
+}
+buildParticles();
+
+function spawnBurst(x, y){
+  for (let i = 0; i < 130; i++){
+    const p = new Particle();
+    const a = Math.random() * Math.PI * 2;
+    const sp = 3 + Math.random() * 7;
+    p.x = x; p.y = y;
+    p.vx = Math.cos(a) * sp;
+    p.vy = Math.sin(a) * sp;
+    p.life = 1;
+    p.hueT = Math.random();
+    particles.push(p);
+  }
+  // trim so fireworks bursts don't grow forever
+  if (particles.length > 3000) particles.splice(0, particles.length - 3000);
+}
+
+// --- background trail fade, different per mode so each style reads right ---
+function fadeBg(){
+  const alpha = mode === 'galaxy' ? 0.16 : mode === 'fireworks' ? 0.12 : 0.09;
+  ctx.fillStyle = `rgba(5,5,8,${alpha})`;
+  ctx.fillRect(0, 0, W, H);
+}
+
+let last = performance.now();
+let clockT = 0;
+let frames = 0, fpsTimer = 0;
+
+function loop(now){
+  const dt = Math.min((now - last) / 16.67, 3);
+  last = now;
+  clockT += dt * 0.016;
+
+  fadeBg();
+
+  const theme = themes[themeIdx];
+  ctx.globalCompositeOperation = 'lighter';
+
+  for (let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i];
+    p.step(clockT, dt);
+
+    if (p.dead){
+      if (mode === 'fireworks') { particles.splice(i, 1); continue; }
+    }
+
+    const col = lerpColor(theme.a, theme.b, p.hueT);
+    ctx.beginPath();
+    ctx.fillStyle = col;
+    ctx.globalAlpha = mode === 'fireworks' ? Math.max(p.life, 0) : 0.85;
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  // fireworks mode needs a steady drip of new rockets
+  if (mode === 'fireworks' && Math.random() < 0.035){
+    spawnBurst(80 + Math.random()*(W-160), 80 + Math.random()*(H*0.5));
+  }
+  if (mode === 'fireworks' && particles.length < 40){
+    spawnBurst(W/2, H/2);
+  }
+
+  frames++; fpsTimer += dt;
+  if (fpsTimer > 30){
+    document.getElementById('fps').textContent = Math.round(frames * 1000/60 / (fpsTimer/60)) + ' fps';
+    frames = 0; fpsTimer = 0;
+  }
+
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// --- controls ---
+
+document.getElementById('modes').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if (!btn) return;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  mode = btn.dataset.mode;
+  buildParticles();
+  ctx.clearRect(0,0,W,H);
+});
+
+const countSlider = document.getElementById('countSlider');
+countSlider.addEventListener('input', () => {
+  particleCount = Number(countSlider.value);
+  document.getElementById('countVal').textContent = particleCount;
+  buildParticles();
+});
+
+const speedSlider = document.getElementById('speedSlider');
+speedSlider.addEventListener('input', () => {
+  speedMul = Number(speedSlider.value) / 100;
+  document.getElementById('speedVal').textContent = speedMul.toFixed(1) + 'x';
+});
+
+document.getElementById('themeBtn').addEventListener('click', () => {
+  themeIdx = (themeIdx + 1) % themes.length;
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  ctx.fillStyle = '#050508';
+  ctx.fillRect(0,0,W,H);
+});
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'particle-playground.png';
+  link.href = cv.toDataURL('image/png');
+  link.click();
+});
+</script>
+</body>
+</html>
